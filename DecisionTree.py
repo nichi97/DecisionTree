@@ -65,8 +65,8 @@ def findCut(arr):
     """
     unique_arr = np.unique(arr)
     output = []
-    for i in range(len(unique_arr) - 2):
-        output.append((unique_arr[i] + unique_arr[i + 1]) / 2)
+    for i in range(0, len(unique_arr) - 1):
+        output.append((unique_arr[i] + unique_arr[i+1]) / 2)
     return output
 
 def loadData():
@@ -87,13 +87,89 @@ def loadData():
     return (train, train_f, train_l, vali, vali_f, vali_l, test, test_f, test_l, feature_text)
 
 
+
+def recurseHelper(currNode, parent, data, tree):
+    """ Train the entire tree recursively
+
+    Parameters
+    ----------
+    currNode: Node, default=None
+        Node in the tree to be trained
+
+    parent: Node, default=None
+        Parent node of the current node
+
+    data: ndarray, default=None
+        Data flow through this node
+
+    tree: Decision Tree, default=None
+        tree to be trained
+    """
+    print("Training Node...")
+    (currNode.data, currNode.parent) = (data, parent)
+
+    # end of recursion, if the node pure, stop there, assign both lc and rc the output
+    if (currNode.isPure()):
+        temp = currNode
+        (temp.isLeaf, temp.lc, temp.rc) = (True, data[:, FEATURE_LEN][0], data[:, FEATURE_LEN][0])
+        (temp.feature, temp.t) = (None, None)
+        print(f"This is a leaf node, outputting {data[:,FEATURE_LEN][0]}")
+        return temp 
+    else:
+        # if the node is not pure, recurse down and initialize lc and rc
+        (currNode.feature, currNode.t) = currNode.findOptimalCut()
+        currNode.isLeaf = False
+
+        # if the feature is less than or equal to critical value, that is a YES, corresponds to 1
+        # otherwise, it is a no, corresponds to 0
+        print(f'Finish training a branch node, with feature = {currNode.feature}, t = {currNode.t}')
+
+        currNode.lc = recurseHelper(tree.Node(), currNode, data[data[:, currNode.feature] <= currNode.t, :], tree)
+        currNode.rc = recurseHelper(tree.Node(), currNode, data[data[:, currNode.feature] > currNode.t, :], tree)
+        return currNode
+
+def computeError(prediction,label):
+    """Compute the error rate of prediction
+
+    """
+    return sum(prediction != label) / len(prediction)
+
+
+
     
 class DecisionTree:
 
     def __init__(self, data):
         self.root = self.Node()
-        self.root.recurseHelper(None, data)
-    
+        recurseHelper(self.root, None, data, self)
+
+    def predict(self, data):
+        """ Predict the label given a matrix of data
+
+        Parameters
+        ----------
+        data: ndarray, default=None
+            data to be predicted
+
+        Returns
+        -------
+        Label: ndarray containing all the prediction using the decision tree
+        """
+
+        output = []
+        for i in range(data.shape[0]):
+            currNode = self.root
+            currRow = data[i, :] 
+            # while the currNode is not leaf, going down the tree
+            while(not currNode.isLeaf):
+                (f,t) = (currNode.feature, currNode.t)
+                if(currRow[f] <= t):
+                    currNode = currNode.lc
+                else:
+                    currNode = currNode.rc
+            output.append(currNode.lc)
+        return np.array(output)
+            
     class Node:
         """
         A decision tree node
@@ -126,32 +202,6 @@ class DecisionTree:
             Train the Node when the tree is built
             """
             (self.data, self.parent, self.isLeaf, self.lc, self.rc, self.feature, self.t) = (None, None, False, None, None, None, None)
-
-        def recurseHelper(self, parent, data):
-            print("Training Node...")
-            (self.data, self.parent) = (data, parent)
-
-            # end of recursion, if the node pure, stop there, assign both lc and rc the output
-            if (self.isPure()):
-                temp = self.__init__()
-                (temp.isLeaf, temp.lc, temp.rc) = (True, data[:, FEATURE_LEN][0], data[:, FEATURE_LEN][0])
-                (temp.feature, temp.t) = (None, None)
-                print(f"This is a leaf node, outputting {data[:,FEATURE_LEN][0]}")
-                return temp 
-            else:
-                # if the node is not pure, recurse down and initialize lc and rc
-                (self.feature, self.t) = self.findOptimalCut()
-                self.isLeaf = False
-
-                # if the feature is less than or equal to critical value, that is a YES, corresponds to 1
-                # otherwise, it is a no, corresponds to 0
-                print(f'Finish training a branch node, with feature = {self.feature}, t = {self.t}')
-
-                self.lc = self.recurseHelper(self, data[data[:, self.feature] <= self.t, :])
-                self.rc = self.recurseHelper(data[data[:, self.feature] > self.t, :])
-
-
-            
 
 
         def __str__(self):
@@ -220,6 +270,9 @@ if(__name__ == '__main__'):
     # read in the data
     (train, train_f, train_l, vali, vali_f, vali_l, test, test_f, test_l, feature_text) = loadData()
     T = DecisionTree(train)
+    pred = T.predict(train_f)
+    print(f'The training error is {computeError(pred, train_l)}')
+    
 
 
     
