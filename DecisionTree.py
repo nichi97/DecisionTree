@@ -9,6 +9,8 @@ FEATURE_LEN = 22
 import numpy as np
 from scipy.stats import entropy
 from collections import Counter
+from graphviz import Digraph
+import queue
 
 def computeIG(feature, label, t):
     """ Compute the Informage Gain given a set of feature, label, and critical value. Namely, compute H(X) - H(X|Z)
@@ -88,7 +90,7 @@ def loadData():
 
 
 
-def recurseHelper(currNode, parent, data, tree):
+def recurseHelper(currNode, parent, data, tree, index):
     """ Train the entire tree recursively
 
     Parameters
@@ -106,17 +108,17 @@ def recurseHelper(currNode, parent, data, tree):
         tree to be trained
     """
     print("Training Node...")
-    (currNode.data, currNode.parent) = (data, parent)
+
+    (currNode.data, currNode.parent, currNode.index) = (data, parent, index)
 
     # end of recursion, if the node pure, stop there, assign both lc and rc the output
     if (currNode.isPure()):
-        temp = currNode
-        (temp.isLeaf, temp.lc, temp.rc) = (True, data[:, FEATURE_LEN][0], data[:, FEATURE_LEN][0])
-        (temp.feature, temp.t) = (None, None)
+        (currNode.isLeaf, currNode.lc, currNode.rc) = (True, data[:, FEATURE_LEN][0], data[:, FEATURE_LEN][0])
+        (currNode.feature, currNode.t) = (None, None)
         print(f"This is a leaf node, outputting {data[:,FEATURE_LEN][0]}")
-        return temp 
+
     else:
-        # if the node is not pure, recurse down and initialize lc and rc
+        # if the node is not pure, recurse down to initialize lc and rc
         (currNode.feature, currNode.t) = currNode.findOptimalCut()
         currNode.isLeaf = False
 
@@ -124,9 +126,19 @@ def recurseHelper(currNode, parent, data, tree):
         # otherwise, it is a no, corresponds to 0
         print(f'Finish training a branch node, with feature = {currNode.feature}, t = {currNode.t}')
 
-        currNode.lc = recurseHelper(tree.Node(), currNode, data[data[:, currNode.feature] <= currNode.t, :], tree)
-        currNode.rc = recurseHelper(tree.Node(), currNode, data[data[:, currNode.feature] > currNode.t, :], tree)
-        return currNode
+
+        # deal with the root case
+        if parent == None:
+            currNode.lc = recurseHelper(tree.Node(), currNode, data[data[:, currNode.feature] <= currNode.t, :], tree, 1)
+            currNode.rc = recurseHelper(tree.Node(), currNode, data[data[:, currNode.feature] > currNode.t, :], tree, 2)
+        # general case
+        else:
+            currNode.lc = recurseHelper(tree.Node(), currNode, data[data[:, currNode.feature] <= currNode.t, :], tree, currNode.index * 2 + 1)
+            currNode.rc = recurseHelper(tree.Node(), currNode, data[data[:, currNode.feature] > currNode.t, :], tree, currNode.index * 2 + 2)
+
+    return currNode
+
+
 
 def computeError(prediction,label):
     """Compute the error rate of prediction
@@ -141,7 +153,7 @@ class DecisionTree:
 
     def __init__(self, data):
         self.root = self.Node()
-        recurseHelper(self.root, None, data, self)
+        recurseHelper(self.root, None, data, self, 0)
 
     def predict(self, data):
         """ Predict the label given a matrix of data
@@ -169,7 +181,31 @@ class DecisionTree:
                     currNode = currNode.rc
             output.append(currNode.lc)
         return np.array(output)
-            
+
+    def renderTree(self):
+        """ Visualize the tree using graphviz package 
+        """
+        q = queue.Queue()
+        dot = Digraph(comment='Tree Visualization')
+        # initialize the queue
+        q.put(self.root)
+        while(not q.empty()):
+            # while q is not empty, pop the queue
+            top = q.get()
+
+            # create node in the graph, tie back to its parent
+            dot.node(str(top.index), str(top))
+            if top.parent:
+                dot.edge(str(top.parent.index), str(top.index))
+
+            # if lc and rc is still a node, add it to the queue
+            if isinstance(top.lc, DecisionTree.Node):
+                q.put(top.lc)
+            if isinstance(top.rc, DecisionTree.Node):
+                q.put(top.rc)
+        
+        dot.render('test-output/treeGraph.gv', view=True) 
+           
     class Node:
         """
         A decision tree node
@@ -196,16 +232,22 @@ class DecisionTree:
 
         t: double, default=None
             Specifies the critical value from which the branches are splitted
+
+        index: int, default=None
+            A unique index given to each node in the tree
         """
         def __init__(self):
             """
             Train the Node when the tree is built
             """
-            (self.data, self.parent, self.isLeaf, self.lc, self.rc, self.feature, self.t) = (None, None, False, None, None, None, None)
+            (self.data, self.parent, self.isLeaf, self.lc, self.rc, self.feature, self.t, self.index) = (None, None, False, None, None, None, None, None)
 
 
         def __str__(self):
-            return(f'decision rule: Is X_{self.feature} <= {self.t}?')
+            if self.isLeaf:
+                return(f'Output:{self.lc}')
+            else:
+                return(f'Is X_{self.feature} <= {self.t}?')
 
    
         def findOptimalCut(self):
@@ -270,6 +312,7 @@ if(__name__ == '__main__'):
     # read in the data
     (train, train_f, train_l, vali, vali_f, vali_l, test, test_f, test_l, feature_text) = loadData()
     T = DecisionTree(train)
+    T.renderTree()
     pred = T.predict(train_f)
     print(f'The training error is {computeError(pred, train_l)}')
     
