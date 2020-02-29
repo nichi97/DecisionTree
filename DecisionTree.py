@@ -11,6 +11,7 @@ from scipy.stats import entropy
 from collections import Counter
 from graphviz import Digraph
 import queue
+import copy
 
 def computeIG(feature, label, t):
     """ Compute the Informage Gain given a set of feature, label, and critical value. Namely, compute H(X) - H(X|Z)
@@ -182,7 +183,77 @@ class DecisionTree:
             output.append(currNode.lc)
         return np.array(output)
 
-    def renderTree(self):
+    def pruneTree(self, vali, iteration=1):
+        """ This function prune the tree to temper the effect of overfitting
+
+        Parameters
+        ----------
+        vali: ndarray, default=None
+            The validation set data used to carry out the pruning
+
+        iteration: int, default=1
+            Number of node to be pruned
+
+        Returns
+        -------
+        The pruned tree, noted that the pruning does not happens in place
+
+        """
+
+        # going BFT, so use a queue
+        pt= self
+        q = []
+        i = 0
+
+        # split into feature and label for validation set
+        vali_f = vali[:, : FEATURE_LEN]
+        vali_l = vali[:, FEATURE_LEN]
+
+        # make a deep copy of original tree
+        ct = copy.deepcopy(pt)
+        q.append(ct.root)
+        while(len(q) > 0):
+
+            # pop the top, push the lc and rc to the queue
+            top = q.pop(0)
+            top_backup = copy.deepcopy(top)
+
+            data_f = top.data[:, :FEATURE_LEN]
+            data_l = top.data[:, FEATURE_LEN]
+            # select the majority of validation 
+            out_label = Counter(data_l).most_common(1)[0][0]
+            (top.lc, top.rc, top.isLeaf, top.feature, top.t) = (out_label, out_label, True, None, None)
+
+            ct_pred = ct.predict(vali_f)
+            pt_pred = pt.predict(vali_f)
+            ct_err = computeError(ct_pred, vali_l)
+            pt_err = computeError(pt_pred, vali_l)
+            print(f'Pruned a node {top.index}')
+            print(f'The validation error of original tree is {pt_err}')
+            print(f'The validation error of proned tree is {ct_err}')
+
+            if ct_err < pt_err:
+                pt = copy.deepcopy(ct)
+                i += 1
+                if i == iteration:
+                    return ct 
+            else: 
+                top = top_backup
+                # rewire edge between parent and child
+                if(top.parent and top.parent.lc == top):
+                    top.parent.lc = top_backup
+                elif(top.parent and top.parent.rc == top):
+                    top.parent.rc = top_backup
+                elif(not top.parent):
+                    ct.root = top
+
+                if isinstance(top.lc, DecisionTree.Node):
+                    q.append(top.lc)
+                if isinstance(top.lc, DecisionTree.Node):
+                    q.append(top.rc)
+
+
+    def renderTree(self, outputFileName):
         """ Visualize the tree using graphviz package 
         """
         q = queue.Queue()
@@ -204,7 +275,7 @@ class DecisionTree:
             if isinstance(top.rc, DecisionTree.Node):
                 q.put(top.rc)
         
-        dot.render('test-output/treeGraph.gv', view=True) 
+        dot.render(f'test-output/{outputFileName}.gv', view=True) 
            
     class Node:
         """
@@ -312,9 +383,15 @@ if(__name__ == '__main__'):
     # read in the data
     (train, train_f, train_l, vali, vali_f, vali_l, test, test_f, test_l, feature_text) = loadData()
     T = DecisionTree(train)
-    T.renderTree()
-    pred = T.predict(train_f)
-    print(f'The training error is {computeError(pred, train_l)}')
+    # T.renderTree()
+    pred = T.predict(test_f)
+    # test error is 0.171
+    print(f'The test error is {computeError(pred, test_l)}') 
+    T2 = T.pruneTree(vali, 1)
+
+
+    
+
     
 
 

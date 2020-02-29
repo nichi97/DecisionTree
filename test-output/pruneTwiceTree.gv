@@ -1,0 +1,8 @@
+// Tree Visualization
+digraph {
+	0 [label="Is X_4 <= 0.5?"]
+	1 [label="Output:0.0"]
+	0 -> 1
+	2 [label="Output:1.0"]
+	0 -> 2
+}
